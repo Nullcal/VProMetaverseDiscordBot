@@ -1,4 +1,3 @@
-require('dotenv').config(); // ローカルテスト用にdotenvを読み込む
 const express = require('express');
 const { InteractionType, InteractionResponseType } = require('discord.js');
 const { verifyKey } = require('discord-interactions');
