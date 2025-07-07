@@ -1,6 +1,5 @@
 const express = require('express');
 const { InteractionType, InteractionResponseType } = require('discord.js');
-const { verifyKey } = require('discord-interactions');
 const nacl = require('tweetnacl');
 const fetch = require('node-fetch');
 
