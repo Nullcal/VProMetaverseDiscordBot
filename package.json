@@ -1,15 +1,15 @@
 {
   "name": "render-discord-bot",
   "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "register": "node register-commands.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.3",
+    "discord-api-types": "^0.37.90",
+    "discord-interactions": "^3.4.0",
     "express": "^4.19.2",
-    "node-fetch": "^2.7.0",
-    "tweetnacl": "^1.0.3"
+    "node-fetch": "^3.3.2"
   }
 }
