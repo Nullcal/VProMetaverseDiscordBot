@@ -12,11 +12,13 @@ const PORT = process.env.PORT || 3000;
 app.get('/poll', async (req, res) => {
   console.log('Polling started...');
 
-  const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-  const CHANNEL_ID = process.env.TARGET_CHANNEL_ID;
-  const GAS_URL = process.env.GAS_WEBHOOK_URL;
+  const { DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID, GAS_URL, DISCORD_GUILD_ID } = process.env;
 
-  const discordApiUrl = `https://discord.com/api/v10/channels/${CHANNEL_ID}/messages?limit=100`;
+  if (!DISCORD_GUILD_ID) {
+    throw new Error('DISCORD_GUILD_ID is not set in environment variables.');
+  }
+
+  const discordApiUrl = `https://discord.com/api/v10/channels/${TARGET_CHANNEL_ID}/messages?limit=100`;
 
   try {
     const discordResponse = await fetch(discordApiUrl, {
@@ -33,42 +35,60 @@ app.get('/poll', async (req, res) => {
       return res.status(200).send('No new messages.');
     }
 
-    // --- ここからが新しいデータ処理ロジック ---
     const tasksToLog = [];
-    const fluffWords = ['お願いします', 'よろしく', 'です']; // タスクから除外したい文字列
+    const fluffWords = ['お願いします', 'よろしく', 'です'];
 
     for (const msg of messages) {
-      // 1. メッセージを行ごとに分割
-      const lines = msg.content.split('\n');
+      // --- ここからが新しいニックネーム取得ロジック ---
 
+      // 1. メッセージ内でメンションされているユニークなユーザーIDのリストを作成
+      const mentionedUserIds = [...new Set(msg.mentions.map(m => m.id))];
+
+      if (mentionedUserIds.length === 0) continue; // メンションがなければスキップ
+
+      // 2. 全員のサーバーメンバー情報を並行してAPIから取得
+      const memberPromises = mentionedUserIds.map(userId =>
+        fetch(`https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/members/${userId}`, {
+          headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+        }).then(res => res.json())
+      );
+      const members = await Promise.all(memberPromises);
+
+      // 3. ユーザーIDをキー、ニックネームを値とするマップを作成
+      const nicknameMap = new Map();
+      for (const member of members) {
+        if (member.user) {
+          // ニックネーム(member.nick)があればそれ、なければユーザー名(member.user.username)を使う
+          nicknameMap.set(member.user.id, member.nick || member.user.username);
+        }
+      }
+      // --- ニックネーム取得ロジックここまで ---
+
+      // 4. メッセージを行ごとに処理
+      const lines = msg.content.split('\n');
       for (const line of lines) {
-        // 2. <@ユーザーID> タスク という形式に一致するかチェック
         const match = line.match(/<@(\d+)>([\s\S]+)/);
-        if (!match) continue; // 一致しない行はスキップ
+        if (!match) continue;
 
         const userId = match[1];
         let task = match[2].trim();
 
-        // 3. ユーザーIDからメンション情報を探す
-        const mentionedUser = msg.mentions.find(m => m.id === userId);
-        if (!mentionedUser) continue; // メンション情報がなければスキップ
+        // 5. マップからニックネームを取得
+        const name = nicknameMap.get(userId);
+        if (!name) continue; // メンバー情報を取得できなかった場合はスキップ
 
-        const name = mentionedUser.username; // 注意: これはサーバーニックネームではなく、グローバルなユーザー名です
+        // 6. タスクから不要な単語を削除
+        fluffWords.forEach(word => {
+          task = task.replace(new RegExp(word, 'g'), '').trim();
+        });
 
-        // 4. タスクから不要な単語を削除
-        for (const word of fluffWords) {
-          task = task.replace(word, '').trim();
-        }
-
-        if (task) { // タスク内容が空でなければ追加
+        if (task) {
           tasksToLog.push({ name, task });
         }
       }
     }
-    // --- データ処理ロジックここまで ---
 
     if (tasksToLog.length > 0) {
-      // 抽出したタスクの配列をGASに送信
       await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -86,7 +106,6 @@ app.get('/poll', async (req, res) => {
     res.status(500).send('Polling job failed.');
   }
 });
-
 
 app.listen(PORT, () => {
   console.log('Listening on port', PORT);
