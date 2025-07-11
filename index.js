@@ -27,10 +27,8 @@ app.get('/poll', async (req, res) => {
     return res.status(500).send(errorMessage);
   }
   // --- デバッグ用コードここまで ---
-  
-  console.log('Polling started...');
 
-  const { DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID, GAS_URL, DISCORD_GUILD_ID } = process.env;
+  console.log('Polling started...');
 
   if (!DISCORD_GUILD_ID) {
     throw new Error('DISCORD_GUILD_ID is not set in environment variables.');
