@@ -10,6 +10,24 @@ const PORT = process.env.PORT || 3000;
 
 // Endpoint triggered by the GAS scheduler to perform polling
 app.get('/poll', async (req, res) => {
+  // --- ここからデバッグ用に修正 ---
+  console.log('--- Checking Environment Variables ---');
+  const { DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID, GAS_URL, DISCORD_GUILD_ID } = process.env;
+
+  console.log(`DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN ? 'Loaded' : '!!! UNDEFINED !!!'}`);
+  console.log(`TARGET_CHANNEL_ID: ${TARGET_CHANNEL_ID ? 'Loaded' : '!!! UNDEFINED !!!'}`);
+  console.log(`GAS_URL: ${GAS_URL ? 'Loaded' : '!!! UNDEFINED !!!'}`);
+  console.log(`DISCORD_GUILD_ID: ${DISCORD_GUILD_ID ? 'Loaded' : '!!! UNDEFINED !!!'}`);
+  console.log('------------------------------------');
+
+  // どれか一つでも未定義なら、エラーを返して処理を停止
+  if (!DISCORD_BOT_TOKEN || !TARGET_CHANNEL_ID || !GAS_URL || !DISCORD_GUILD_ID) {
+    const errorMessage = 'One or more environment variables are missing.';
+    console.error(errorMessage);
+    return res.status(500).send(errorMessage);
+  }
+  // --- デバッグ用コードここまで ---
+  
   console.log('Polling started...');
 
   const { DISCORD_BOT_TOKEN, TARGET_CHANNEL_ID, GAS_URL, DISCORD_GUILD_ID } = process.env;
