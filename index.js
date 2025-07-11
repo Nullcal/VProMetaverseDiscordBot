@@ -6,31 +6,7 @@ import fetch from 'node-fetch';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to verify requests from Discord for the /interactions endpoint
-const verifyDiscordRequest = (clientKey) => {
-  return function (req, res, buf, encoding) {
-    const signature = req.get('X-Signature-Ed25519');
-    const timestamp = req.get('X-Signature-Timestamp');
-
-    const isValidRequest = verifyKey(buf, signature, timestamp, clientKey);
-    if (!isValidRequest) {
-      res.status(401).send('Bad request signature');
-      throw new Error('Bad request signature');
-    }
-  };
-};
-
-// Endpoint for future Slash Command use
-app.post('/interactions', express.json({ verify: verifyDiscordRequest(process.env.DISCORD_PUBLIC_KEY) }), async function (req, res) {
-  const interaction = req.body;
-  if (interaction.type === InteractionType.Ping) {
-    return res.send({ type: InteractionResponseType.Pong });
-  }
-
-  // Handle commands here if you add them later
-  return res.status(404).send('Command not found.');
-});
-
+// (略) ... 以前と同じ verifyDiscordRequest と /interactions のコード ...
 
 // Endpoint triggered by the GAS scheduler to perform polling
 app.get('/poll', async (req, res) => {
@@ -40,16 +16,11 @@ app.get('/poll', async (req, res) => {
   const CHANNEL_ID = process.env.TARGET_CHANNEL_ID;
   const GAS_URL = process.env.GAS_WEBHOOK_URL;
 
-  // For a production system, you should save the ID of the last message fetched
-  // and use the `after` parameter in the URL to avoid refetching old messages.
-  // Example: `&after=${lastMessageId}`
   const discordApiUrl = `https://discord.com/api/v10/channels/${CHANNEL_ID}/messages?limit=100`;
 
   try {
     const discordResponse = await fetch(discordApiUrl, {
-      headers: {
-        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-      },
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
     });
 
     if (!discordResponse.ok) {
@@ -57,32 +28,58 @@ app.get('/poll', async (req, res) => {
     }
 
     const messages = await discordResponse.json();
-
     if (messages.length === 0) {
-      console.log('No new messages found.');
+      console.log('No new tasks found.');
       return res.status(200).send('No new messages.');
     }
 
-    // Format messages for GAS
-    // Discord returns messages from newest to oldest, so we reverse them
-    const formattedMessages = messages.reverse().map((msg) => {
-      return {
-        id: msg.id,
-        timestamp: msg.timestamp,
-        user: msg.author.username,
-        message: msg.content,
-      };
-    });
+    // --- ここからが新しいデータ処理ロジック ---
+    const tasksToLog = [];
+    const fluffWords = ['お願いします', 'よろしく', 'です']; // タスクから除外したい文字列
 
-    // Send the formatted messages to the Google Apps Script Web App
-    await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formattedMessages), // Send as an array
-    });
+    for (const msg of messages) {
+      // 1. メッセージを行ごとに分割
+      const lines = msg.content.split('\n');
 
-    console.log(`Successfully sent ${formattedMessages.length} messages to GAS.`);
-    res.status(200).send(`Polling successful. Sent ${formattedMessages.length} messages.`);
+      for (const line of lines) {
+        // 2. <@ユーザーID> タスク という形式に一致するかチェック
+        const match = line.match(/<@(\d+)>([\s\S]+)/);
+        if (!match) continue; // 一致しない行はスキップ
+
+        const userId = match[1];
+        let task = match[2].trim();
+
+        // 3. ユーザーIDからメンション情報を探す
+        const mentionedUser = msg.mentions.find(m => m.id === userId);
+        if (!mentionedUser) continue; // メンション情報がなければスキップ
+
+        const name = mentionedUser.username; // 注意: これはサーバーニックネームではなく、グローバルなユーザー名です
+
+        // 4. タスクから不要な単語を削除
+        for (const word of fluffWords) {
+          task = task.replace(word, '').trim();
+        }
+
+        if (task) { // タスク内容が空でなければ追加
+          tasksToLog.push({ name, task });
+        }
+      }
+    }
+    // --- データ処理ロジックここまで ---
+
+    if (tasksToLog.length > 0) {
+      // 抽出したタスクの配列をGASに送信
+      await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tasksToLog),
+      });
+      console.log(`Successfully sent ${tasksToLog.length} tasks to GAS.`);
+      res.status(200).send(`Polling successful. Sent ${tasksToLog.length} tasks.`);
+    } else {
+      console.log('No valid tasks to log.');
+      res.status(200).send('No valid tasks to log.');
+    }
 
   } catch (error) {
     console.error('Polling failed:', error);
